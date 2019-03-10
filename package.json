@@ -1,0 +1,42 @@
+{
+  "name": "projectbot",
+  "version": "1.0.1",
+  "description": "A discord bot with youtuber search music, riot games api and codeforces/uri api",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leonardorodriguesds/projectbot.git"
+  },
+  "keywords": [
+    "discord",
+    "discord.js",
+    "riotgames",
+    "league",
+    "of",
+    "legends",
+    "codeforces",
+    "youtube",
+    "music",
+    "youtube",
+    "discord",
+    "bot"
+  ],
+  "author": "Leonardo Rodrigues",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/leonardorodriguesds/projectbot/issues"
+  },
+  "homepage": "https://github.com/leonardorodriguesds/projectbot#readme",
+  "dependencies": {
+    "discord.js": "^11.4.2",
+    "mongodb": "^3.1.13",
+    "node-emoji": "^1.10.0",
+    "node-schedule": "^1.3.2",
+    "ytdl-core": "^0.29.1",
+    "ytpl": "^0.1.14",
+    "ytsr": "^0.1.8"
+  }
+}

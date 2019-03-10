@@ -6,6 +6,7 @@ RUN apk update && \
     rm -rf /var/cache/*
 ENV PATH /app/node_modules/.bin:$PATH
 COPY package.json /app/package.json
+COPY auth.json /app/env/auth.json
 RUN npm install npm@latest -g
 RUN npm install -g
 ENV PROJECT_ENV_CONFIG=prod

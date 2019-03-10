@@ -8,6 +8,19 @@ Array.prototype.contains = function(element){
     return this.indexOf(element) > -1
 }
 
+function shuffle(array) {
+    var currentIndex = array.length, temporaryValue, randomIndex
+    while (0 !== currentIndex) {
+      randomIndex = Math.floor(Math.random() * currentIndex)
+      currentIndex -= 1
+      temporaryValue = array[currentIndex]
+      array[currentIndex] = array[randomIndex]
+      array[randomIndex] = temporaryValue
+    }
+  
+    return array;
+}
+
 toSeconds = (str) => {
     var p = str.split(':'), s = 0, m = 1;
     
@@ -40,6 +53,18 @@ exports.start = (client, options) => {
                 this.queueHelper = new Map()
                 this.queueLimit = (options && options.queueLimit) || 200
                 this.songEmbed = null
+
+                this.play = {
+                    enabled: true,
+                    run: "playFunction",
+                    alt: [],
+                    help: "Comando tocar uma música/playlist.",
+                    name: "play",
+                    usage: null,
+                    embedColor: this.embedColor,
+                    controll: "playsong"
+                }
+                if (options.play) this.play = Object.assign(this.play, options.play)
 
                 this.searchMusic = {
                     enabled: true,
@@ -76,6 +101,30 @@ exports.start = (client, options) => {
                     controll: "skipsong"
                 }
                 if (options.skip) this.skip = Object.assign(this.skip, options.skip)
+
+                this.queueList = {
+                    enabled: true,
+                    run: "queueFunction",
+                    alt: [],
+                    help: "Comando para exibir a fila de músicas.",
+                    name: "queue",
+                    usage: null,
+                    embedColor: this.embedColor,
+                    controll: "queuelist"
+                }
+                if (options.queueList) this.queueList = Object.assign(this.queueList, options.queueList)
+
+                this.shuffle = {
+                    enabled: true,
+                    run: "shuffleFunction",
+                    alt: [],
+                    help: "Comando para aleatorizar a fila.",
+                    name: "shuffle",
+                    usage: null,
+                    embedColor: this.embedColor,
+                    controll: "shufflequeue"
+                }
+                if (options.shuffle) this.shuffle = Object.assign(this.shuffle, options.shuffle)
 
                 this.channelWhitelist = (options && options.channelWhitelist) || []
                 this.channelBlacklist = (options && options.channelBlacklist) || []
@@ -114,6 +163,18 @@ exports.start = (client, options) => {
                 else if (music && music.user.id === member.id) return true
                 else if (this.isAdmin(member)) return true
                 else return false
+            }
+
+            normalizeMusic(e, author) {
+                return e = Object.assign({
+                    author: {
+                        verified: false
+                    },
+                    user: {
+                        username: author.username,
+                        displayAvatarURL: author.displayAvatarURL
+                    }
+                }, e)
             }
         }
 
@@ -208,10 +269,10 @@ exports.start = (client, options) => {
             if (queue.songs.length > djBot.queueLimit) 
                 return msg.channel.send(djBot.emote('fail', 'Limite de músicas na fila excedido!'))
 
-            if (filter.first) queue.songs.unshift(music)
-            else queue.songs.push(music)
-
-            msg.channel.send(djBot.emote('note', 'Música adicionada!'))
+            if (filter.first) queue.songs.splice(queue.index, 0, music), queue.index--
+            else if (Array.isArray(music)) 
+                queue.songs = queue.songs.concat(music), msg.channel.send(djBot.emote('note', `${music.length} músicas adicionadas`))
+            else queue.songs.push(music), msg.channel.send(djBot.emote('note', 'Música adicionada!'))
 
             if (filter.start && !queue.playing) djBot.startQueue(msg, msg.guild.id)
         }
@@ -272,6 +333,60 @@ exports.start = (client, options) => {
         /**
          * Interface functions
          */
+        djBot.playFunction = (msg, suffix, args, cmdRun, flags) => {
+            const isYoutube = suffix.includes("youtube.com") || suffix.includes("youtu.be")
+            const queue = djBot.queue(msg.guild.id) 
+
+            if (isYoutube && suffix.includes("list=")) {
+                const idPlaylist = (suffix.split("list=")[1]).split("&")[0]
+                const musics = new Array()
+                ytpl(idPlaylist, {
+                    limit: djBot.queueLimit - queue.songs.length
+                }, async (err, result) => {
+                    if (err) {
+                        console.log(`[${cmdRun}]`)
+                        console.log(err)
+                        return msg.channel.send(djBot.emote('fail', 'Não foi possível encontrar essa playlist'))
+                    }
+                    if (!result.items.length)
+                        return msg.channel.send(djBot.emote('fail', 'Playlist não encontrada!'))
+                    await result.items.forEach((song) => {
+                        song = djBot.normalizeMusic(song, msg.author)
+                        song.link = song.url_simple
+                        musics.push(song)
+                    })
+                    return djBot.enqueueMusic({
+                        channel: msg.channel,
+                        guild: {
+                            id: msg.guild.id
+                        },
+                        member: {
+                            voiceChannel: msg.member.voiceChannel
+                        }
+                    }, musics)
+                })
+            } else {
+                ytsr(suffix, { limit: 1 }, (err, result) => {
+                    if (err) {
+                        console.log(`[${cmdRun}]`)
+                        console.log(err)
+                        return msg.channel.send(djBot.emote('fail', 'Não foi possível encontrar essa música'))
+                    }
+                    if (!result.items.length)
+                        return msg.channel.send(djBot.emote('fail', 'Nenhuma música encontrada!'))
+                    return djBot.enqueueMusic({
+                        channel: msg.channel,
+                        guild: {
+                            id: msg.guild.id
+                        },
+                        member: {
+                            voiceChannel: msg.member.voiceChannel
+                        }
+                    }, djBot.normalizeMusic(result.items[0], msg.author))
+                })
+            }
+        }
+
         djBot.searchMusicFunction = async (msg, suffix, args, cmdRun, flags) => {
             try {
                 if (!suffix) {
@@ -283,19 +398,13 @@ exports.start = (client, options) => {
                     limit: (flags.limit)? parseInt(flags.limit) : 5
                 } // applying search filters
                 const playFlags = {
-                    first: (flags.first)? parseInt(flags.first) : false
+                    first: (flags.first)? flags.first : false
                 }
 
                 ytsr(suffix, filter, (err, result) => {
                     if (err) throw(err)
                     result['items'].forEach((e) => {
-                        e = Object.assign({
-                            author: {
-                                verified: false
-                            }
-                        }, e)
-
-                        e.user = msg.author
+                        e = djBot.normalizeMusic(e, msg.author)
                         const icon = new Discord.Attachment(`./assets/images/icons/youtube-verified.png`, 'verified.png')
                         const embed = new Discord.RichEmbed()
                         .setColor(f.embedColor)
@@ -313,7 +422,15 @@ exports.start = (client, options) => {
                             m.react('▶')
                             let play = m.createReactionCollector((reaction, user) => reaction.emoji.name === '▶' && user.id === msg.author.id, { time: 120000 });
 
-                            play.on('collect', r => djBot.enqueueMusic(msg, e, playFlags))
+                            play.on('collect', r => djBot.enqueueMusic({
+                                channel: msg.channel,
+                                guild: {
+                                    id: msg.guild.id
+                                },
+                                member: {
+                                    voiceChannel: msg.member.voiceChannel
+                                }
+                            }, e, playFlags))
                         })
                     })
                 })
@@ -373,6 +490,51 @@ exports.start = (client, options) => {
             dispatcher.end()
         }
 
+        djBot.queueFunction = (msg, suffix, args, cmdRun, flags) => {
+            if (!djBot.queueHelper.has(msg.guild.id))
+                msg.channel.send(djBot.emote('fail', 'Nenhuma fila neste servidor!'))
+            const queue = djBot.queue(msg.guild.id)
+            if (!queue.songs.length) msg.channel.send(djBot.emote('fail', 'Nenhuma música na fila'))
+
+            const pages = new Array()
+            let controll = 0, i = 0, page = '', pageID = 0
+            queue.songs.forEach((song, index) => {
+                controll++
+                const size = 58 - (queue.index - 1 === i? 4 : 0) - ((i + 1).toString().length)
+                page += `${i+1}: ${queue.index - 1 === i? '> ' : ''}${song.title.length > 50? song.title.substring(0, size - 3) + '...' : song.title.padEnd(size)}${queue.index - 1 === i? ' <' : ''}\t${song.duration}\n`
+                if (controll == 10 || queue.songs.length - 1 === index)
+                    controll = 0, pages.push(page), page = ''
+                i++
+            })
+            msg.channel.send('```Markdown\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```').then(m => {
+                m.react('⏪').then( r => {
+                    m.react('⏩')
+                    let nextPage = m.createReactionCollector((reaction, user) => reaction.emoji.name === '⏩' && user.id === msg.author.id, { time: 120000 })
+                    let prevPage = m.createReactionCollector((reaction, user) => reaction.emoji.name === '⏪' && user.id === msg.author.id, { time: 120000 })
+
+                    nextPage.on('collect', r => {
+                        if (pageID === pages.length - 1) return
+                        pageID++
+                        m.edit('```Markdown\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```')
+                    })
+                    prevPage.on('collect', r => {
+                        if (pageID === 0) return
+                        pageID--
+                        m.edit('```Markdown\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```')
+                    })
+                })
+            })
+        }
+
+        djBot.shuffleFunction = (msg, suffix, args, cmdRun, flags) => {
+            if (!djBot.queueHelper.has(msg.guild.id))
+                msg.channel.send(djBot.emote('fail', 'Nenhuma fila neste servidor!'))
+            const queue = djBot.queue(msg.guild.id)
+            if (!queue.songs.length) msg.channel.send(djBot.emote('fail', 'Nenhuma música na fila'))
+
+            queue.songs = shuffle(queue.songs)
+        }
+
         djBot.emote = (type, text) => {
             if (type === 'fail') {
                 const embed = new Discord.RichEmbed()
@@ -402,6 +564,9 @@ exports.start = (client, options) => {
                 await djBot.addCommand(djBot.searchMusic)
                 await djBot.addCommand(djBot.songPlaying)
                 await djBot.addCommand(djBot.skip)
+                await djBot.addCommand(djBot.play)
+                await djBot.addCommand(djBot.queueList)
+                await djBot.addCommand(djBot.shuffle)
             } catch (e) {
                 throw('Error on load commands')
                 throw(e)

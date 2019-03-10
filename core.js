@@ -144,8 +144,8 @@ exports.start = (client, options) => {
             })
         }
 
-        client.on('ready', function (evt) {
-            client.user.setPresence({ activity: { name: '-help' }, status: 'Ouvindo' })
+        client.on('ready', () => {
+            client.user.setActivity('type -help', { type: 'PLAYING' })
         })
 
         client.on("message", (msg) => {

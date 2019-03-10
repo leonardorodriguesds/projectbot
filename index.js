@@ -45,16 +45,14 @@ client.mongo.connect(`mongodb://${auth.mongo.server}:${auth.mongo.port}`, { useN
     /**
      * Music bot
      */
-    /* client.music = require("./music.js")
+    client.music = require("./music.js")
     client.music.start(client, {
         youtubeKey: auth.youtubeAPI,
-        botPrefix:"-",
         help: {
             name: "helpmusic"
         },
-        anyoneCanSkip: true,
-        musicPresence: true
-    }); */
+        freeSkip: true
+    });
 
     /**
      * Riot BOT

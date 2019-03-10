@@ -35,7 +35,7 @@ toSeconds = (str) => {
 exports.start = (client, options) => {
     try {
         if (process.version.slice(1).split('.')[0] < 8) {
-            console.error(new Error(`[MusicBot] É necessário node v8+!`));
+            console.error(new Error(`[djBot] É necessário node v8+!`));
             process.exit(1);
         }
 
@@ -126,6 +126,18 @@ exports.start = (client, options) => {
                 }
                 if (options.shuffle) this.shuffle = Object.assign(this.shuffle, options.shuffle)
 
+                this.leave = {
+                    enabled: true,
+                    run: "leaveFunction",
+                    alt: [],
+                    help: "Comando para forçar o bot a sair do canal de voz.",
+                    name: "leave",
+                    usage: null,
+                    embedColor: this.embedColor,
+                    controll: "leavechannel"
+                }
+                if (options.leave) this.leave = Object.assign(this.leave, options.leave)
+
                 this.channelWhitelist = (options && options.channelWhitelist) || []
                 this.channelBlacklist = (options && options.channelBlacklist) || []
                 this.spamControll = new Set()
@@ -142,6 +154,7 @@ exports.start = (client, options) => {
                 this.bitRate = (options && options.bitRate) || "120000"
                 this.freeSkip = (options && options.freeSkip) || false
                 this.botManagers = (options && options.botManagers) || []
+                this.leaveCmdFree = (options && options.leaveCmdFree) || false
             }
 
             queue(server) {
@@ -175,6 +188,14 @@ exports.start = (client, options) => {
                         displayAvatarURL: author.displayAvatarURL
                     }
                 }, e)
+            }
+
+            destroyQueue(server) {
+                return new Promise((resolve, reject) => {
+                    if (!this.queueHelper.has(server)) reject(`nenhuma fila encontrada no servidor ${server}`);
+                    this.queueHelper.set(server, { songs: new Array(), playing: false, loop: 'disable', index: 0, volume: this.volume, playing: false })
+                    resolve(this.queueHelper.get(server))
+                });
             }
         }
 
@@ -282,7 +303,14 @@ exports.start = (client, options) => {
                 if (!server) return msg.channel.send(djBot.emote('fail', 'Não existe uma fila neste servidor!'))
 
                 const queue = djBot.queue(server)
-                if (!queue.songs.length) return msg.channel.send(djBot.emote('fail', 'Nenhuma música na fila!'))
+                if (!queue.songs.length) return msg.channel.send(djBot.emote('fail', 'Nenhuma música para tocar!'))
+                if (queue.index >= queue.songs.length) {
+                    djBot.destroyQueue(msg.guild.id)
+                    msg.channel.send(djBot.emote('fail', 'A música acabou!'))
+                    const voiceConnection = client.voiceConnections.find(val => val.channel.guild.id == msg.guild.id)
+                    if (voiceConnection !== null) return voiceConnection.disconnect()
+                    return
+                }
 
                 const connection = await djBot.joinVoiceChannel(msg.member.voiceChannel, server)
                 connection.on('error', (err) => {
@@ -293,7 +321,6 @@ exports.start = (client, options) => {
                     bitrate: djBot.bitRate,
                     volume: (queue.volume / 100)
                 })
-                djBot.dispatcher = player
                 player.on('error', (err) => {
                     throw(err)
                 }).on('start', () => {
@@ -318,8 +345,7 @@ exports.start = (client, options) => {
                             queue.index = 0
                         else if (queue.loop === 'song')
                             queue.index--
-                        if (queue.index < queue.songs.length)
-                            djBot.startQueue(msg, server)
+                        djBot.startQueue(msg, server)
                     }, 1250) // time to end connection
                 })                
             } catch(e) {
@@ -535,6 +561,21 @@ exports.start = (client, options) => {
             queue.songs = shuffle(queue.songs)
         }
 
+        djBot.leaveFunction = (msg, suffix, args, cmdRun, flags) => {
+            if (djBot.isAdmin(msg.member) || djBot.leaveCmdFree === true) {
+                const voiceConnection = client.voiceConnections.find(val => val.channel.guild.id == msg.guild.id);
+                if (voiceConnection === null)
+                    return msg.channel.send(djBot.emote('fail', 'Não estou em um canal de voz!'))
+                djBot.destroyQueue(msg.guild.id)
+                if (djBot.songEmbed) djBot.songEmbed.then((s) => s.delete())
+                
+                if (!voiceConnection.player.dispatcher) return
+                voiceConnection.player.dispatcher.end()
+                voiceConnection.disconnect()
+                msg.channel.send(djBot.emote('note', 'Deixou o canal de voz!'))
+            } else msg.channel.send(djBot.emote('fail', 'Você não pode me expulsar!'))
+        }
+
         djBot.emote = (type, text) => {
             if (type === 'fail') {
                 const embed = new Discord.RichEmbed()
@@ -567,6 +608,7 @@ exports.start = (client, options) => {
                 await djBot.addCommand(djBot.play)
                 await djBot.addCommand(djBot.queueList)
                 await djBot.addCommand(djBot.shuffle)
+                await djBot.addCommand(djBot.leave)
             } catch (e) {
                 throw('Error on load commands')
                 throw(e)

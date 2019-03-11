@@ -139,6 +139,42 @@ exports.start = (client, options) => {
                 }
                 if (options.leave) this.leave = Object.assign(this.leave, options.leave)
 
+                this.pause = {
+                    enabled: true,
+                    run: "pauseFunction",
+                    alt: [],
+                    help: "Comando para pausar uma música.",
+                    name: "pause",
+                    usage: null,
+                    embedColor: this.embedColor,
+                    controll: "pausemusic"
+                }
+                if (options.pause) this.pause = Object.assign(this.pause, options.pause)
+
+                this.resume = {
+                    enabled: true,
+                    run: "resumeFunction",
+                    alt: [],
+                    help: "Comando para despausar uma música.",
+                    name: "resume",
+                    usage: null,
+                    embedColor: this.embedColor,
+                    controll: "resumemusic"
+                }
+                if (options.resume) this.resume = Object.assign(this.resume, options.resume)
+
+                this.clear = {
+                    enabled: true,
+                    run: "clearFunction",
+                    alt: [],
+                    help: "Comando para limpar a fila de músicas.",
+                    name: "clear",
+                    usage: null,
+                    embedColor: this.embedColor,
+                    controll: "clearmusic"
+                }
+                if (options.clear) this.clear = Object.assign(this.clear, options.clear)
+
                 this.channelWhitelist = (options && options.channelWhitelist) || []
                 this.channelBlacklist = (options && options.channelBlacklist) || []
                 this.spamControll = new Set()
@@ -156,6 +192,8 @@ exports.start = (client, options) => {
                 this.freeSkip = (options && options.freeSkip) || false
                 this.botManagers = (options && options.botManagers) || []
                 this.leaveCmdFree = (options && options.leaveCmdFree) || false
+                this.pauseControll = (options && options.pauseControll) || true
+                this.clearControll = (options && options.clearControll) || true
             }
 
             queue(server) {
@@ -316,10 +354,15 @@ exports.start = (client, options) => {
             if (queue.songs.length > djBot.queueLimit) 
                 return msg.channel.send(djBot.emote('fail', 'Limite de músicas na fila excedido!'))
 
-            if (filter.first) queue.songs.splice(queue.index, 0, music), queue.index--
-            else if (Array.isArray(music)) 
-                queue.songs = queue.songs.concat(music), msg.channel.send(djBot.emote('note', `${music.length} músicas adicionadas`))
-            else queue.songs.push(music), msg.channel.send(djBot.emote('note', `**${music.title}** adicionada!`))
+            if (Array.isArray(music)) {
+                if (filter.first) queue.songs = music.concat(queue.songs)
+                else queue.songs = queue.songs.concat(music)
+                msg.channel.send(djBot.emote('note', `${music.length} músicas adicionadas`))
+            } else {
+                if (filter.first) queue.songs.splice(queue.index, 0, music)
+                else queue.songs.push(music)
+                msg.channel.send(djBot.emote('note', `**${music.title}** adicionada!`))
+            }
 
             if (filter.start && !queue.playing) djBot.startQueue(msg, msg.guild.id)
         }
@@ -391,7 +434,9 @@ exports.start = (client, options) => {
             if (!msg.member.voiceChannel) return msg.channel.send(djBot.emote('fail', 'Você não está em um canal de voz!'))
             const isYoutube = suffix.includes("youtube.com") || suffix.includes("youtu.be")
             const queue = djBot.queue(msg.guild.id) 
-
+            const playFlags = {
+                first: (flags.first)? flags.first : false
+            }
             if (isYoutube && suffix.includes("list=")) {
                 const idPlaylist = (suffix.split("list=")[1]).split("&")[0]
                 const musics = new Array()
@@ -418,7 +463,7 @@ exports.start = (client, options) => {
                         member: {
                             voiceChannel: msg.member.voiceChannel
                         }
-                    }, musics)
+                    }, musics, playFlags)
                 })
             } else {
                 ytsr.getFilters(suffix, function(err, filters) {
@@ -444,7 +489,7 @@ exports.start = (client, options) => {
                             member: {
                                 voiceChannel: msg.member.voiceChannel
                             }
-                        }, djBot.normalizeMusic(result.items[0], msg.author))
+                        }, djBot.normalizeMusic(result.items[0], msg.author), playFlags)
                     })
                 })
             }
@@ -574,7 +619,7 @@ exports.start = (client, options) => {
                     controll = 0, pages.push(page), page = ''
                 i++
             })
-            msg.channel.send('```css\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```').then(m => {
+            msg.channel.send('```\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```').then(m => {
                 m.react('⏪').then( r => {
                     m.react('⏩')
                     let nextPage = m.createReactionCollector((reaction, user) => reaction.emoji.name === '⏩' && user.id === msg.author.id, { time: 120000 })
@@ -583,12 +628,12 @@ exports.start = (client, options) => {
                     nextPage.on('collect', r => {
                         if (pageID === pages.length - 1) return
                         pageID++
-                        m.edit('```css\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```')
+                        m.edit('```\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```')
                     })
                     prevPage.on('collect', r => {
                         if (pageID === 0) return
                         pageID--
-                        m.edit('```css\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```')
+                        m.edit('```\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```')
                     })
                 })
             })
@@ -617,6 +662,43 @@ exports.start = (client, options) => {
                 voiceConnection.disconnect()
                 msg.channel.send(djBot.emote('note', 'Deixou o canal de voz!'))
             } else msg.channel.send(djBot.emote('fail', 'Você não pode me expulsar!'))
+        }
+
+        djBot.pauseFunction = (msg, suffix, args, cmdRun, flags) => {
+            const voiceConnection = client.voiceConnections.find(val => val.channel.guild.id == msg.guild.id)
+            if (voiceConnection === null) 
+                return msg.channel.send(djBot.emote('fail', 'Nenhuma música tocando.'))
+            if (!djBot.isAdmin(msg.member) && !djBot.pauseControll)
+                return msg.channel.send(djBot.emote('fail', 'Você não pode pausar filas.'))
+
+            const dispatcher = voiceConnection.player.dispatcher
+            if (dispatcher.paused) return msg.channel.send(djBot.emote(`fail`, `A música já está pausada!`))
+            else dispatcher.pause()
+        }
+
+        djBot.resumeFunction = (msg, suffix, args, cmdRun, flags) => {
+            const voiceConnection = client.voiceConnections.find(val => val.channel.guild.id == msg.guild.id)
+            if (voiceConnection === null) 
+                return msg.channel.send(djBot.emote('fail', 'Nenhuma música tocando.'))
+            if (!djBot.isAdmin(msg.member) && !djBot.pauseControll)
+                return msg.channel.send(djBot.emote('fail', 'Você não pode despausar filas.'))
+
+            const dispatcher = voiceConnection.player.dispatcher
+            if (!dispatcher.paused) return msg.channel.send(djBot.emote(`fail`, `A música já está tocando!`))
+            else dispatcher.resume()
+        }
+
+        djBot.clearFunction = (msg, suffix, args, cmdRun, flags) => {
+            const voiceConnection = client.voiceConnections.find(val => val.channel.guild.id == msg.guild.id)
+            if (voiceConnection === null) 
+                return msg.channel.send(djBot.emote('fail', 'Nenhuma música tocando.'))
+            if (!djBot.isAdmin(msg.member) && !djBot.clearControll)
+                return msg.channel.send(djBot.emote('fail', 'Você não pode limpar filas.'))
+            djBot.destroyQueue(msg.guild.id)
+            if (djBot.songEmbed) djBot.songEmbed.then((s) => s.delete())
+                
+            if (!voiceConnection.player.dispatcher) return
+            voiceConnection.player.dispatcher.end()
         }
 
         djBot.emote = (type, text) => {
@@ -652,6 +734,9 @@ exports.start = (client, options) => {
                 await djBot.addCommand(djBot.queueList)
                 await djBot.addCommand(djBot.shuffle)
                 await djBot.addCommand(djBot.leave)
+                await djBot.addCommand(djBot.pause)
+                await djBot.addCommand(djBot.resume)
+                await djBot.addCommand(djBot.clear)
             } catch (e) {
                 throw('Error on load commands')
                 throw(e)

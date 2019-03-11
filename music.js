@@ -53,6 +53,7 @@ exports.start = (client, options) => {
                 this.queueHelper = new Map()
                 this.queueLimit = (options && options.queueLimit) || 200
                 this.songEmbed = null
+                this.timeToExit = null
 
                 this.play = {
                     enabled: true,
@@ -265,6 +266,31 @@ exports.start = (client, options) => {
          * CORE FUNCTIONS
          */
 
+        djBot.updatePresence = async (queue, options = null) => {
+            return new Promise((resolve, reject) => {
+                if (!queue) reject('Argumentos inválidos')
+                if (options && options.clear) 
+                    resolve(client.user.setPresence({ game: { name: null }, status: 'online' }))
+                else {
+                    const music = queue.songs[queue.index - 1]
+                    const opt = Object.assign({
+                        game: {
+                            name: `🎵 | ${music.title}`,
+                            url: music.link,
+                            type: 'LISTENING'
+                        },
+                        afk: false,
+                        status: "idle"
+                    }, (options && options.presence)? options.presence : {})
+                    client.user.setPresence(opt).catch((res) => {
+                        console.error("Não foi possível editar a presença do BOT\n" + res)
+                        client.user.setPresence({ game: { name: null}, status: 'online' })
+                        resolve(client.user.presence)
+                    }).then((res) => resolve(res))
+                }
+            })
+        }
+
         djBot.joinVoiceChannel = (voiceChannel, server) => {
             return new Promise((resolve, reject) => {
                 const channelConnection = client.voiceConnections.find(val => val.channel.guild.id == server)
@@ -293,7 +319,7 @@ exports.start = (client, options) => {
             if (filter.first) queue.songs.splice(queue.index, 0, music), queue.index--
             else if (Array.isArray(music)) 
                 queue.songs = queue.songs.concat(music), msg.channel.send(djBot.emote('note', `${music.length} músicas adicionadas`))
-            else queue.songs.push(music), msg.channel.send(djBot.emote('note', 'Música adicionada!'))
+            else queue.songs.push(music), msg.channel.send(djBot.emote('note', `**${music.title}** adicionada!`))
 
             if (filter.start && !queue.playing) djBot.startQueue(msg, msg.guild.id)
         }
@@ -305,13 +331,15 @@ exports.start = (client, options) => {
                 const queue = djBot.queue(server)
                 if (!queue.songs.length) return msg.channel.send(djBot.emote('fail', 'Nenhuma música para tocar!'))
                 if (queue.index >= queue.songs.length) {
-                    djBot.destroyQueue(msg.guild.id)
-                    msg.channel.send(djBot.emote('fail', 'A música acabou!'))
-                    const voiceConnection = client.voiceConnections.find(val => val.channel.guild.id == msg.guild.id)
-                    if (voiceConnection !== null) return voiceConnection.disconnect()
+                    djBot.updatePresence(queue, { clear: true })
+                    djBot.timeToExit = setTimeout(() => {
+                        msg.channel.send(djBot.emote('note', 'Deixou o canal de voz por inatividade!'))
+                        const voiceConnection = client.voiceConnections.find(val => val.channel.guild.id == msg.guild.id)
+                        if (voiceConnection !== null) return voiceConnection.disconnect()
+                    }, 5 * 60 * 1000) // 5 min
                     return
                 }
-
+                
                 const connection = await djBot.joinVoiceChannel(msg.member.voiceChannel, server)
                 connection.on('error', (err) => {
                     throw(err)
@@ -324,6 +352,7 @@ exports.start = (client, options) => {
                 player.on('error', (err) => {
                     throw(err)
                 }).on('start', () => {
+                    if (djBot.timeToExit) clearTimeout(djBot.timeToExit)
                     const icon = new Discord.Attachment(`./assets/images/icons/youtube-verified.png`, 'verified.png')
                     const embed = new Discord.RichEmbed()
                     .setColor(djBot.musicEmbedColor)
@@ -337,8 +366,7 @@ exports.start = (client, options) => {
 
                     if (djBot.songEmbed) djBot.songEmbed.then((s) => s.delete())
                     djBot.songEmbed = msg.channel.send(embed)
-
-                    client.user.setActivity(music.title, { type: 'LISTENING' })
+                    djBot.updatePresence(queue)
                 }).on('speaking', (speaking) => queue.playing = speaking).on('end', () => {
                     setTimeout(() => {
                         if ((queue.index >= queue.songs.length && queue.loop === 'queue'))
@@ -360,6 +388,7 @@ exports.start = (client, options) => {
          * Interface functions
          */
         djBot.playFunction = (msg, suffix, args, cmdRun, flags) => {
+            if (!msg.member.voiceChannel) return msg.channel.send(djBot.emote('fail', 'Você não está em um canal de voz!'))
             const isYoutube = suffix.includes("youtube.com") || suffix.includes("youtu.be")
             const queue = djBot.queue(msg.guild.id) 
 
@@ -392,71 +421,84 @@ exports.start = (client, options) => {
                     }, musics)
                 })
             } else {
-                ytsr(suffix, { limit: 1 }, (err, result) => {
-                    if (err) {
-                        console.log(`[${cmdRun}]`)
-                        console.log(err)
-                        return msg.channel.send(djBot.emote('fail', 'Não foi possível encontrar essa música'))
+                ytsr.getFilters(suffix, function(err, filters) {
+                    if (err) throw(err)
+                    filter = filters.get('Type').find(o => o.name === 'Video')
+                    const options = {
+                        limit: 1,
+                        nextpageRef: filter.ref
                     }
-                    if (!result.items.length)
-                        return msg.channel.send(djBot.emote('fail', 'Nenhuma música encontrada!'))
-                    return djBot.enqueueMusic({
-                        channel: msg.channel,
-                        guild: {
-                            id: msg.guild.id
-                        },
-                        member: {
-                            voiceChannel: msg.member.voiceChannel
+                    ytsr(null, options, (err, result) => {
+                        if (err) {
+                            console.log(`[${cmdRun}]`)
+                            console.log(err)
+                            return msg.channel.send(djBot.emote('fail', 'Não foi possível encontrar essa música'))
                         }
-                    }, djBot.normalizeMusic(result.items[0], msg.author))
+                        if (!result.items.length)
+                            return msg.channel.send(djBot.emote('fail', 'Nenhuma música encontrada!'))
+                        return djBot.enqueueMusic({
+                            channel: msg.channel,
+                            guild: {
+                                id: msg.guild.id
+                            },
+                            member: {
+                                voiceChannel: msg.member.voiceChannel
+                            }
+                        }, djBot.normalizeMusic(result.items[0], msg.author))
+                    })
                 })
             }
         }
 
         djBot.searchMusicFunction = async (msg, suffix, args, cmdRun, flags) => {
             try {
+                if (!msg.member.voiceChannel) return msg.channel.send(djBot.emote('fail', 'Você não está em um canal de voz!'))
                 if (!suffix) {
                     msg.react(client.emoji.get('thumbsdown'))
                     return msg.channel.send(djBot.emote('fail', 'Nenhuma música informada!'))
                 }
                 const f = djBot.searchMusic // Function options
-                const filter = {
-                    limit: (flags.limit)? parseInt(flags.limit) : 5
+                const options = {
+                    limit: (flags.limit)? parseInt(flags.limit) : 3
                 } // applying search filters
                 const playFlags = {
                     first: (flags.first)? flags.first : false
                 }
-
-                ytsr(suffix, filter, (err, result) => {
+                ytsr.getFilters(suffix, function(err, filters) {
                     if (err) throw(err)
-                    result['items'].forEach((e) => {
-                        e = djBot.normalizeMusic(e, msg.author)
-                        const icon = new Discord.Attachment(`./assets/images/icons/youtube-verified.png`, 'verified.png')
-                        const embed = new Discord.RichEmbed()
-                        .setColor(f.embedColor)
-                        .setTitle(e.title)
-                        .setThumbnail(e.thumbnail)
-                        .setDescription(`${e.description}\n**Duração:** ${e.duration}. **Visualizações:** ${e.views}. **Data:** ${e.uploaded_at}`)
-                        .setURL(e.link)
-                        .setTimestamp()
-                        .setFooter(msg.author.username, msg.author.displayAvatarURL)
+                    filter = filters.get('Type').find(o => o.name === 'Video')
+                    options.nextpageRef = filter.ref
+                    ytsr(null, options, (err, result) => {
+                        if (err) throw(err)
+                        result['items'].forEach((e) => {
+                            e = djBot.normalizeMusic(e, msg.author)
+                            const icon = new Discord.Attachment(`./assets/images/icons/youtube-verified.png`, 'verified.png')
+                            const embed = new Discord.RichEmbed()
+                            .setColor(f.embedColor)
+                            .setTitle(e.title)
+                            .setThumbnail(e.thumbnail)
+                            .setDescription(`${e.description}\n**Duração:** ${e.duration}. **Visualizações:** ${e.views}. **Data:** ${e.uploaded_at}`)
+                            .setURL(e.link)
+                            .setTimestamp()
+                            .setFooter(msg.author.username, msg.author.displayAvatarURL)
 
-                        if (e.author.verified) embed.attachFile(icon), embed.setAuthor(e.author.name, 'attachment://verified.png')
-                        else embed.setAuthor(e.author.name)
+                            if (e.author.verified) embed.attachFile(icon), embed.setAuthor(e.author.name, 'attachment://verified.png')
+                            else embed.setAuthor(e.author.name)
 
-                        msg.channel.send(embed).then((m) => {
-                            m.react('▶')
-                            let play = m.createReactionCollector((reaction, user) => reaction.emoji.name === '▶' && user.id === msg.author.id, { time: 120000 });
+                            msg.channel.send(embed).then((m) => {
+                                m.react('▶')
+                                let play = m.createReactionCollector((reaction, user) => reaction.emoji.name === '▶' && user.id === msg.author.id, { time: 120000 });
 
-                            play.on('collect', r => djBot.enqueueMusic({
-                                channel: msg.channel,
-                                guild: {
-                                    id: msg.guild.id
-                                },
-                                member: {
-                                    voiceChannel: msg.member.voiceChannel
-                                }
-                            }, e, playFlags))
+                                play.on('collect', r => djBot.enqueueMusic({
+                                    channel: msg.channel,
+                                    guild: {
+                                        id: msg.guild.id
+                                    },
+                                    member: {
+                                        voiceChannel: msg.member.voiceChannel
+                                    }
+                                }, e, playFlags))
+                            })
                         })
                     })
                 })
@@ -532,7 +574,7 @@ exports.start = (client, options) => {
                     controll = 0, pages.push(page), page = ''
                 i++
             })
-            msg.channel.send('```Markdown\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```').then(m => {
+            msg.channel.send('```css\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```').then(m => {
                 m.react('⏪').then( r => {
                     m.react('⏩')
                     let nextPage = m.createReactionCollector((reaction, user) => reaction.emoji.name === '⏩' && user.id === msg.author.id, { time: 120000 })
@@ -541,12 +583,12 @@ exports.start = (client, options) => {
                     nextPage.on('collect', r => {
                         if (pageID === pages.length - 1) return
                         pageID++
-                        m.edit('```Markdown\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```')
+                        m.edit('```css\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```')
                     })
                     prevPage.on('collect', r => {
                         if (pageID === 0) return
                         pageID--
-                        m.edit('```Markdown\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```')
+                        m.edit('```css\n' + pages[pageID] + `Página ${pageID + 1} de ${pages.length}\n` + '```')
                     })
                 })
             })
@@ -562,6 +604,7 @@ exports.start = (client, options) => {
         }
 
         djBot.leaveFunction = (msg, suffix, args, cmdRun, flags) => {
+            djBot.updatePresence({}, { clear: true })
             if (djBot.isAdmin(msg.member) || djBot.leaveCmdFree === true) {
                 const voiceConnection = client.voiceConnections.find(val => val.channel.guild.id == msg.guild.id);
                 if (voiceConnection === null)

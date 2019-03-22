@@ -12,10 +12,10 @@ Array.prototype.shuffle = function(i = 0) {
     let b = this.slice(i, this.length)
     let a = this.slice(0, i)
     for (let i = 0; i < b.length; i++) {
-      const j = Math.round(Math.random() * (i + 1))
-      const tmp = b[j]
-      b[j] = b[i]
-      b[i] = tmp
+        const j = Math.round(Math.random() * (i + 1))
+        const tmp = b[j]
+        b[j] = b[i]
+        b[i] = tmp
     }
     return a.concat(b)
 }
@@ -58,6 +58,9 @@ exports.start = (client, options) => {
                 this.queueLimit = (options && options.queueLimit) || 200
                 this.songEmbed = null
                 this.timeToExit = null
+                this.playlistCollections = client.db.collection('playlists')
+                this.musicsCollections = client.db.collection('musics')
+                this.playlistHelperCollections = client.db.collection('playlistsHelper')
 
                 this.play = {
                     enabled: true,
@@ -191,6 +194,54 @@ exports.start = (client, options) => {
                 }
                 if (options.unshuffle) this.unshuffle = Object.assign(this.unshuffle, options.unshuffle)
 
+                this.addAdminBot = {
+                    enabled: true,
+                    run: "adminBotFunction",
+                    alt: [],
+                    help: "Comando para adicionar um administrador ao bot.",
+                    name: "addadmin",
+                    usage: null,
+                    embedColor: this.embedColor,
+                    controll: "addadminmusic"
+                }
+                if (options.addAdminBot) this.addAdminBot = Object.assign(this.addAdminBot, options.addAdminBot)
+
+                this.createPlaylist = {
+                    enabled: true,
+                    run: "createPlaylistFunction",
+                    alt: [],
+                    help: "Comando para criar uma playlist.",
+                    name: "addplaylist",
+                    usage: null,
+                    embedColor: this.embedColor,
+                    controll: "createplaylist"
+                }
+                if (options.createPlaylist) this.createPlaylist = Object.assign(this.createPlaylist, options.createPlaylist)
+
+                this.myPlaylists = {
+                    enabled: true,
+                    run: "myPlaylistslistFunction",
+                    alt: [],
+                    help: "Comando para listar suas playlists.",
+                    name: "myplaylists",
+                    usage: null,
+                    embedColor: this.embedColor,
+                    controll: "listmyplaylists"
+                }
+                if (options.myPlaylists) this.myPlaylists = Object.assign(this.myPlaylists, options.myPlaylists)
+
+                this.deletePlaylist = {
+                    enabled: true,
+                    run: "deletePlaylistsFunction",
+                    alt: [],
+                    help: "Comando para deletar uma ou mais de suas playlists.",
+                    name: "deleteplaylist",
+                    usage: null,
+                    embedColor: this.embedColor,
+                    controll: "deleteplaylist"
+                }
+                if (options.deletePlaylist) this.deletePlaylist = Object.assign(this.deletePlaylist, options.deletePlaylist)
+
                 this.channelWhitelist = (options && options.channelWhitelist) || []
                 this.channelBlacklist = (options && options.channelBlacklist) || []
                 this.spamControll = new Set()
@@ -210,6 +261,8 @@ exports.start = (client, options) => {
                 this.leaveCmdFree = (options && options.leaveCmdFree) || false
                 this.pauseControll = (options && options.pauseControll) || true
                 this.clearControll = (options && options.clearControll) || true
+                this.botAdmins = (options && options.botAdmins) || []
+                this.freeCreatePlaylist = (options && options.freeCreatePlaylist) || true
             }
 
             queue(server) {
@@ -233,6 +286,13 @@ exports.start = (client, options) => {
                 else return false
             }
 
+            canCreatePlaylist(member) {
+                if (this.freeCreatePlaylist) return true
+                else if (this.botAdmins.includes(member.id)) return true
+                else if (this.isAdmin(member)) return true
+                else return false
+            }
+
             normalizeMusic(e, author) {
                 return e = Object.assign({
                     author: {
@@ -241,7 +301,8 @@ exports.start = (client, options) => {
                     user: {
                         username: author.username,
                         displayAvatarURL: author.displayAvatarURL
-                    }
+                    },
+                    link: (e.link)? e.link : e.url_simple
                 }, e)
             }
 
@@ -320,6 +381,34 @@ exports.start = (client, options) => {
          * CORE FUNCTIONS
          */
 
+        djBot.loadPlaylist = async (playlist, max = null) => {
+            return new Promise((resolve, reject) => {
+                ytpl(playlist, max? { limit: max } : {}, async (err, result) => {
+                    if (err) reject(err)
+                    if (!result.items.length) reject('Playlist não encontrada!')
+                    resolve(result.items)
+                })
+            })
+        }
+
+        djBot.loadMusic = async (music, limit = 1) => {
+            return new Promise((resolve, reject) => {
+                ytsr.getFilters(music, function(err, filters) {
+                    if (err) reject(err)
+                    filter = filters.get('Type').find(o => o.name === 'Video')
+                    const options = {
+                        limit: limit,
+                        nextpageRef: filter.ref
+                    }
+                    ytsr(null, options, (err, result) => {
+                        if (err) reject(err)
+                        if (!result.items.length) reject('Nenhuma música encontrada!')
+                        resolve(result.items)
+                    })
+                })
+            })
+        }
+
         djBot.updatePresence = async (queue, options = null) => {
             return new Promise((resolve, reject) => {
                 if (!queue) reject('Argumentos inválidos')
@@ -383,7 +472,7 @@ exports.start = (client, options) => {
                 else queue.order.push(i)
                 msg.channel.send(djBot.emote('note', `**${music.title}** adicionada!`))
             }
-
+            
             if (filter.start && !queue.playing) djBot.startQueue(msg, msg.guild.id)
         }
 
@@ -396,7 +485,7 @@ exports.start = (client, options) => {
                     return msg.channel.send(djBot.emote('fail', 'Nenhuma música para tocar!'))
                 if (queue.index >= queue.order.length) {
                     djBot.updatePresence(queue, { clear: true })
-                    djBot.timeToExit = setTimeout(() => {
+                    djBot.timeToExit = setTimeout(() => {https://www.youtube.com/watch?v=iI34LYmJ1Fs&list=PLw-VjHDlEOgsIgak3vJ7mrcy-OscZ6OAs
                         msg.channel.send(djBot.emote('note', 'Deixou o canal de voz por inatividade!'))
                         const voiceConnection = client.voiceConnections.find(val => val.channel.guild.id == msg.guild.id)
                         if (voiceConnection !== null) return voiceConnection.disconnect()
@@ -451,32 +540,19 @@ exports.start = (client, options) => {
         /**
          * Interface functions
          */
-        djBot.playFunction = (msg, suffix, args, cmdRun, flags) => {
-            if (!msg.member.voiceChannel) return msg.channel.send(djBot.emote('fail', 'Você não está em um canal de voz!'))
-            if (!suffix) return msg.channel.send(djBot.emote('fail', 'Você não informou nenhuma música!')) 
-            const isYoutube = suffix.includes("youtube.com") || suffix.includes("youtu.be")
-            const queue = djBot.queue(msg.guild.id) 
-            const playFlags = {
-                first: (flags.first)? flags.first : false
-            }
-            if (isYoutube && suffix.includes("list=")) {
-                const idPlaylist = (suffix.split("list=")[1]).split("&")[0]
-                const musics = new Array()
-                ytpl(idPlaylist, {
-                    limit: djBot.queueLimit - queue.songs.length
-                }, async (err, result) => {
-                    if (err) {
-                        console.log(`[${cmdRun}]`)
-                        console.log(err)
-                        return msg.channel.send(djBot.emote('fail', 'Não foi possível encontrar essa playlist'))
-                    }
-                    if (!result.items.length)
-                        return msg.channel.send(djBot.emote('fail', 'Playlist não encontrada!'))
-                    await result.items.forEach((song) => {
-                        song = djBot.normalizeMusic(song, msg.author)
-                        song.link = song.url_simple
-                        musics.push(song)
-                    })
+        djBot.playFunction = async (msg, suffix, args, cmdRun, flags) => {
+            try {
+                if (!msg.member.voiceChannel) return msg.channel.send(djBot.emote('fail', 'Você não está em um canal de voz!'))
+                if (!suffix) return msg.channel.send(djBot.emote('fail', 'Você não informou nenhuma música!')) 
+                const isYoutube = suffix.includes("youtube.com") || suffix.includes("youtu.be")
+                const queue = djBot.queue(msg.guild.id) 
+                const playFlags = {
+                    first: (flags.first)? flags.first : false
+                }
+                if (isYoutube && suffix.includes("list=")) {
+                    const idPlaylist = (suffix.split("list=")[1]).split("&")[0]
+                    let musics = await djBot.loadPlaylist(idPlaylist, djBot.queueLimit - queue.songs.length)
+                    musics = musics.map((music) => djBot.normalizeMusic(music, msg.author))
                     return djBot.enqueueMusic({
                         channel: msg.channel,
                         guild: {
@@ -486,34 +562,22 @@ exports.start = (client, options) => {
                             voiceChannel: msg.member.voiceChannel
                         }
                     }, musics, playFlags)
-                })
-            } else {
-                ytsr.getFilters(suffix, function(err, filters) {
-                    if (err) throw(err)
-                    filter = filters.get('Type').find(o => o.name === 'Video')
-                    const options = {
-                        limit: 1,
-                        nextpageRef: filter.ref
-                    }
-                    ytsr(null, options, (err, result) => {
-                        if (err) {
-                            console.log(`[${cmdRun}]`)
-                            console.log(err)
-                            return msg.channel.send(djBot.emote('fail', 'Não foi possível encontrar essa música'))
+                } else {
+                    let music = await djBot.loadMusic(suffix)
+                    music = djBot.normalizeMusic(music[0], msg.author)
+                    return djBot.enqueueMusic({
+                        channel: msg.channel,
+                        guild: {
+                            id: msg.guild.id
+                        },
+                        member: {
+                            voiceChannel: msg.member.voiceChannel
                         }
-                        if (!result.items.length)
-                            return msg.channel.send(djBot.emote('fail', 'Nenhuma música encontrada!'))
-                        return djBot.enqueueMusic({
-                            channel: msg.channel,
-                            guild: {
-                                id: msg.guild.id
-                            },
-                            member: {
-                                voiceChannel: msg.member.voiceChannel
-                            }
-                        }, djBot.normalizeMusic(result.items[0], msg.author), playFlags)
-                    })
-                })
+                    }, music, playFlags)
+                }
+            } catch (e) {
+                console.log("[playFunction]")
+                console.log(e)
             }
         }
 
@@ -531,42 +595,35 @@ exports.start = (client, options) => {
                 const playFlags = {
                     first: (flags.first)? flags.first : false
                 }
-                ytsr.getFilters(suffix, function(err, filters) {
-                    if (err) throw(err)
-                    filter = filters.get('Type').find(o => o.name === 'Video')
-                    options.nextpageRef = filter.ref
-                    ytsr(null, options, (err, result) => {
-                        if (err) throw(err)
-                        result['items'].forEach((e) => {
-                            e = djBot.normalizeMusic(e, msg.author)
-                            const icon = new Discord.Attachment(`./assets/images/icons/youtube-verified.png`, 'verified.png')
-                            const embed = new Discord.RichEmbed()
-                            .setColor(f.embedColor)
-                            .setTitle(e.title)
-                            .setThumbnail(e.thumbnail)
-                            .setDescription(`${e.description}\n**Duração:** ${e.duration}. **Visualizações:** ${e.views}. **Data:** ${e.uploaded_at}`)
-                            .setURL(e.link)
-                            .setTimestamp()
-                            .setFooter(msg.author.username, msg.author.displayAvatarURL)
+                let musics = await djBot.loadMusic(suffix, (flags.limit)? parseInt(flags.limit) : 3)
+                musics.forEach((e) => {
+                    e = djBot.normalizeMusic(e, msg.author)
+                    const icon = new Discord.Attachment(`./assets/images/icons/youtube-verified.png`, 'verified.png')
+                    const embed = new Discord.RichEmbed()
+                    .setColor(f.embedColor)
+                    .setTitle(e.title)
+                    .setThumbnail(e.thumbnail)
+                    .setDescription(`${e.description}\n**Duração:** ${e.duration}. **Visualizações:** ${e.views}. **Data:** ${e.uploaded_at}`)
+                    .setURL(e.link)
+                    .setTimestamp()
+                    .setFooter(msg.author.username, msg.author.displayAvatarURL)
 
-                            if (e.author.verified) embed.attachFile(icon), embed.setAuthor(e.author.name, 'attachment://verified.png')
-                            else embed.setAuthor(e.author.name)
+                    if (e.author.verified) embed.attachFile(icon), embed.setAuthor(e.author.name, 'attachment://verified.png')
+                    else embed.setAuthor(e.author.name)
 
-                            msg.channel.send(embed).then((m) => {
-                                m.react('▶')
-                                let play = m.createReactionCollector((reaction, user) => reaction.emoji.name === '▶' && user.id === msg.author.id, { time: 120000 });
+                    msg.channel.send(embed).then((m) => {
+                        m.react('▶')
+                        let play = m.createReactionCollector((reaction, user) => reaction.emoji.name === '▶' && user.id === msg.author.id, { time: 120000 });
 
-                                play.on('collect', r => djBot.enqueueMusic({
-                                    channel: msg.channel,
-                                    guild: {
-                                        id: msg.guild.id
-                                    },
-                                    member: {
-                                        voiceChannel: msg.member.voiceChannel
-                                    }
-                                }, e, playFlags))
-                            })
-                        })
+                        play.on('collect', r => djBot.enqueueMusic({
+                            channel: msg.channel,
+                            guild: {
+                                id: msg.guild.id
+                            },
+                            member: {
+                                voiceChannel: msg.member.voiceChannel
+                            }
+                        }, e, playFlags))
                     })
                 })
             } catch(e) {
@@ -738,6 +795,164 @@ exports.start = (client, options) => {
             voiceConnection.player.dispatcher.end()
         }
 
+        djBot.adminBotFunction = (msg, suffix, args, cmdRun, flags) => {
+            if (!djBot.isAdmin(msg.member)) return msg.channel.send(djBot.emote('fail', 'Você não tem autorização para isso.'))
+            const flag = false
+            client.users.forEach((u) => {
+                if (u.username === suffix) {
+                    flag = true
+                    djBot.botAdmins.push(u.id)
+                    return msg.channel.send(djBot.emote('note', `${u.username} adicionado como admin!`))
+                }
+            })
+            if (!flag) return msg.channel.send(djBot.emote('fail', `${u.username} não encontrado!`))
+        }
+
+        djBot.createPlaylistFunction = async (msg, suffix, args, cmdRun, flags) => {
+            if (!djBot.canCreatePlaylist(msg.member)) return msg.channel.send(djBot.emote('fail', 'Você não tem autorização para criar uma playlist.'))
+
+            const filter = m => !m.author.bot
+            const playlist = {
+                name: '',
+                public: false,
+                id: -1
+            }
+            const musics = new Array()
+
+            const readInput = m => m.channel.awaitMessages(filter, { max: 1, time: 300000 })
+
+            const normalizeInput = m => {
+                let input = m.first()
+                input.react(client.emoji.get('ok_hand'))
+                return input
+            }
+
+            const name = () => 
+                msg.author.send('Comece me dizendo um nome para esta playlist')
+                .then(readInput).then(normalizeInput).then(confirmName)
+
+            const confirmName = r => {
+                playlist.name = r.content
+                return djBot.playlistCollections.findOne({ userID: msg.author.id, name: playlist.name })
+                .then((p) => {
+                    if (p)
+                        return r.channel.send('Você já possui uma playlist com este nome\nTente outro nome')
+                        .then(readInput).then(normalizeInput).then(confirmName)
+                    else 
+                        return r.channel.send(`**${playlist.name}** é um bom nome\nMe diga, essa playlist é pública?`)
+                        .then(readInput).then(normalizeInput).then(public)
+                })
+            }
+
+            const public = r => {
+                const result = r.content.trim().toLowerCase()
+                playlist.public = (result === 'y' || result === 'yes' || result === 'sim' || result === 'ok')
+                return r.channel.send(`Ok, a sua playlist é **${playlist.public? 'pública' : 'privada'}**`)
+                .then(createPlaylist)
+            }
+
+            const createPlaylist = async r => {
+                return djBot.playlistCollections.insertOne({ 
+                    name: playlist.name,
+                    public: playlist.public,
+                    userID: msg.author.id
+                }).then((p) => {
+                    playlist.id = p.ops[0]._id
+                    return r.channel.send(`Playlist **criada**... Agora precisamos inserir músicas nela`)
+                    .then(insertMusicHelper)
+                })
+            }
+
+            const insertMusicHelper = async m => 
+                m.channel.send(`Insire um **link/nome** de uma playlist/música do **youtube**\n(Use **.** para finalizar)`)
+                .then(readInput).then(normalizeInput).then(insertMusic)
+            
+
+            const insertMusic = async r => {
+                const music = r.content
+                if (!music || music === '.') return r.channel.send(`Ok... terminamos de configurar a sua playlist.`)
+                    .then(finalizePlaylist)
+                const isYoutube = music.includes("youtube.com") || music.includes("youtu.be")
+
+                if (isYoutube && music.includes('&list')) {
+                    const idPlaylist = (suffix.split("list=")[1]).split("&")[0]
+                    let songs = await djBot.loadPlaylist(idPlaylist)
+                    if (!songs.length) 
+                        return r.channel.send(`Ocorreu algum problema ao inserir essa playlist, tente outra`).then(insertMusicHelper)
+
+                    songs.map((s) => {
+                        return {
+                            title: s.title,
+                            link: s.url_simple
+                        }
+                    })
+                    musics = musics.concat(songs)
+
+                    return r.channel.send(`**${songs.length}** músicas inseridas em sua playlist.`).then(insertMusicHelper)
+                } else {
+                    let song = await djBot.loadMusic(music)
+                    if (!song.length)
+                        return r.channel.send(`Ocorreu algum problema ao inserir essa música, tente outra`).then(insertMusicHelper)
+                    
+                    song = song[0]
+                    musics.push({
+                        title: song.title,
+                        link: song.link
+                    })
+
+                    return r.channel.send(`**${song.title}** inserido`).then(insertMusicHelper)
+                }
+            }
+
+            const finalizePlaylist = async r => {
+                try {
+                    musics.forEach((m) => {
+                        djBot.musicsCollections.findOneAndUpdate({ link: m.link }, {
+                            $set: { name: m.title, link: m.link}
+                        }).then((m) => {
+                            djBot.playlistHelperCollections.findOneAndUpdate({ playlistID: playlist.id, musicID: m.value._id },
+                                { $set: { playlistID: playlist.id, musicID: m.value._id } }, { upsert: true }, (err, result) => {
+                                if (err) {
+                                    r.channel.send(`Não foi possível inserir **${m.title}** em sua playlist.`)
+                                    console.log(err)
+                                }
+                            })
+                        })
+                    })
+                    r.channel.send(`A sua playlist(**${playlist.name}**) está pronta!`)
+                } catch (e) {
+                    console.log(e)
+                }
+            }
+
+            msg.author.send('Você quer criar uma playlist? Ok, vamos lá...').then(name).catch(console.log)
+        }
+
+        djBot.myPlaylistslistFunction = (msg, suffix, args, cmdRun, flags) => {
+            if (!suffix) {
+                djBot.playlistCollections.find({ userID: msg.author.id }).toArray((err, result) => {
+                    if (err) return msg.channel.send(djBot.emote('fail', 'Ocorreu um erro ao tentar listar suas playlists.'))
+                    if (result.length) {
+                        let aux = ''
+                        result.forEach(async (p) => aux += `**${p.name}** :: ${p.public? 'Pública' : 'Privada'}\n`)
+                        return msg.channel.send(aux)
+                    } else return msg.channel.send(djBot.emote('fail', 'Você não possui nenhuma playlist!'))
+                })
+            }
+        }
+
+        djBot.deletePlaylistsFunction = async (msg, suffix, args, cmdRun, flags) => {
+            if (!suffix) {
+                djBot.playlistCollections.deleteMany({ userID: msg.author.id }, (err, result) => {
+                    if (err) { 
+                        msg.channel.send(djBot.emote('fail', 'Ocorreu um erro ao deletar suas playlists'))
+                        return
+                    }
+                    return msg.channel.send(djBot.emote('note', 'Suas playlists foram deletadas!'))
+                })
+            }
+        }
+
         djBot.emote = (type, text) => {
             if (type === 'fail') {
                 const embed = new Discord.RichEmbed()
@@ -775,6 +990,10 @@ exports.start = (client, options) => {
                 await djBot.addCommand(djBot.resume)
                 await djBot.addCommand(djBot.clear)
                 await djBot.addCommand(djBot.unshuffle)
+                await djBot.addCommand(djBot.addAdminBot)
+                await djBot.addCommand(djBot.createPlaylist)
+                await djBot.addCommand(djBot.myPlaylists)
+                await djBot.addCommand(djBot.deletePlaylist)
             } catch (e) {
                 throw('Error on load commands')
                 throw(e)

@@ -52,7 +52,7 @@ client.mongo.connect(`mongodb://${auth.mongo.server}:${auth.mongo.port}`, { useN
             name: "helpmusic"
         },
         freeSkip: true
-    });
+    })
 
     /**
      * Riot BOT

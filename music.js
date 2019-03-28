@@ -464,7 +464,7 @@ exports.start = (client, options) => {
                 const ai = Array.from({ length: music.length }, (v, k) => k + queueLength)
                 queue.songs = queue.songs.concat(music)
                 if (filter.first) queue.order.splice(queue.index, 0, ...ai)
-                else queue.order = queue.order.concat(order)
+                else queue.order = queue.order.concat(ai)
                 msg.channel.send(djBot.emote('note', `${music.length} músicas adicionadas`))
             } else {
                 const i = (queue.songs.push(music) - 1)

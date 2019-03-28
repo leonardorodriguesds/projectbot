@@ -5,7 +5,9 @@ const auth = require('./env/auth.json')
  * initial
  */
 var client = new Client()
-client.on('ready', function (evt) { });
+client.on('ready', function () {
+    console.log('Ready...')
+});
 
 /**
  * MongoDB
@@ -26,7 +28,7 @@ client.mongo.connect(`mongodb://${auth.mongo.server}:${auth.mongo.port}`, { useN
     /**
      * Bot core
      */
-    client.core = require('./core.js')
+    client.core = require('./src/core.js')
     client.core.start(client, {
         signUp: {
             alt: [ 'nc' ]
@@ -45,7 +47,7 @@ client.mongo.connect(`mongodb://${auth.mongo.server}:${auth.mongo.port}`, { useN
     /**
      * Music bot
      */
-    client.music = require("./music.js")
+    client.music = require("./src/music.js")
     client.music.start(client, {
         youtubeKey: auth.youtubeAPI,
         help: {
@@ -57,7 +59,7 @@ client.mongo.connect(`mongodb://${auth.mongo.server}:${auth.mongo.port}`, { useN
     /**
      * Riot BOT
      */
-    client.riot = require('./riot.js')
+    client.riot = require('./src/riot.js')
     client.riot.start(client, {
         apiKey: auth.riotAPI,
         region: "br",
@@ -80,7 +82,7 @@ client.mongo.connect(`mongodb://${auth.mongo.server}:${auth.mongo.port}`, { useN
     /**
      * Code BOT
      */
-    client.code = require('./code.js')
+    client.code = require('./src/code.js')
     client.code.start(client, {
         codeforcesKEY: auth.codeforcesAPI,
         region: "br",

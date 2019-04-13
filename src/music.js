@@ -60,6 +60,7 @@ exports.start = (client, options) => {
                 this.playlistCollections = client.db.collection('playlists')
                 this.musicsCollections = client.db.collection('musics')
                 this.playlistHelperCollections = client.db.collection('playlistsHelper')
+                this.broadcast = client.createVoiceBroadcast()
 
                 this.play = {
                     enabled: true,
@@ -180,6 +181,30 @@ exports.start = (client, options) => {
                     controll: "clearmusic"
                 }
                 if (options.clear) this.clear = Object.assign(this.clear, options.clear)
+
+                this.loop = {
+                    enabled: true,
+                    run: "loopFunction",
+                    alt: [],
+                    help: "Comando para ativar o looping na fila.",
+                    name: "loop",
+                    usage: null,
+                    embedColor: this.embedColor,
+                    controll: "loopmusic"
+                }
+                if (options.loop) this.loop = Object.assign(this.loop, options.loop)
+
+                this.volume = {
+                    enabled: true,
+                    run: "volumeFunction",
+                    alt: [],
+                    help: "Comando para alterar o volume da música.",
+                    name: "volume",
+                    usage: null,
+                    embedColor: this.embedColor,
+                    controll: "volumemusic"
+                }
+                if (options.volume) this.volume = Object.assign(this.loop, options.volume)
 
                 this.unshuffle = {
                     enabled: true,
@@ -497,10 +522,11 @@ exports.start = (client, options) => {
                     throw(err)
                 })
                 const music = queue.songs[queue.order[queue.index++]]
-                const player = connection.playStream(ytdl(music.link, { filter : 'audioonly' }), {
+                const player = djBot.broadcast.playStream(ytdl(music.link, { filter : 'audioonly' }), {
                     bitrate: djBot.bitRate,
                     volume: (queue.volume / 100)
                 })
+                connection.playBroadcast(player)
                 player.on('error', (err) => {
                     throw(err)
                 }).on('start', () => {
@@ -527,11 +553,10 @@ exports.start = (client, options) => {
                             queue.index--
                         djBot.startQueue(msg, server)
                     }, 1250) // time to end connection
-                })                
+                })    
             } catch(e) {
                 msg.channel.send(djBot.emote('fail', 'Desculpe! Ocorreu algum problema.'))
-                console.log('[startQueue]')
-                console.log(e)
+                client.logger.error(e)
             }
         }
 
@@ -575,8 +600,7 @@ exports.start = (client, options) => {
                     }, music, playFlags)
                 }
             } catch (e) {
-                console.log("[playFunction]")
-                console.log(e)
+                client.logger.error(e)
             }
         }
 
@@ -626,8 +650,7 @@ exports.start = (client, options) => {
                     })
                 })
             } catch(e) {
-                console.log(`[${cmdRun}]`)
-                console.log(e)
+                client.logger.error(e)
             }
         }
 
@@ -640,12 +663,13 @@ exports.start = (client, options) => {
 
             const f = djBot.searchMusic // Function options
             const music = queue.songs[queue.order[queue.index - 1]]
+            const description = `${music.description? `${music.description} \n` : ''}${music.duration? `**Duração:** ${music.duration}. `: ''}${music.views? `**Visualizações:** ${music.views}. ` : ''}${music.uploaded_at? `**Data:** ${music.uploaded_at}` : ''}`
             const icon = new Discord.Attachment(`./assets/images/icons/youtube-verified.png`, 'verified.png')
             const embed = new Discord.RichEmbed()
             .setColor(f.embedColor)
             .setTitle(music.title)
             .setThumbnail(music.thumbnail)
-            .setDescription(`${music.description}\n**Duração:** ${music.duration}. **Visualizações:** ${music.views}. **Data:** ${music.uploaded_at}`)
+            .setDescription(description)
             .setURL(music.link)
             .setTimestamp()
             .setFooter(music.user.username, music.user.displayAvatarURL)
@@ -671,7 +695,7 @@ exports.start = (client, options) => {
 
             const queue = djBot.queue(msg.guild.id)
             if (!djBot.canSkip(msg.member, queue)) return msg.channel.send(djBot.note('fail', `Você não pode pular já que você não a colocou.`))
-
+            
             queue.loop = 'disable'
             if (args.length) queue.index += parseInt(args[0]) - 1
 
@@ -742,19 +766,23 @@ exports.start = (client, options) => {
         }
 
         djBot.leaveFunction = (msg, suffix, args, cmdRun, flags) => {
-            djBot.updatePresence({}, { clear: true })
-            if (djBot.isAdmin(msg.member) || djBot.leaveCmdFree === true) {
-                const voiceConnection = client.voiceConnections.find(val => val.channel.guild.id == msg.guild.id);
-                if (voiceConnection === null)
-                    return msg.channel.send(djBot.emote('fail', 'Não estou em um canal de voz!'))
-                djBot.destroyQueue(msg.guild.id)
-                if (djBot.songEmbed) djBot.songEmbed.then((s) => s.delete())
-                
-                if (!voiceConnection.player.dispatcher) return
-                voiceConnection.player.dispatcher.end()
-                voiceConnection.disconnect()
-                msg.channel.send(djBot.emote('note', 'Deixou o canal de voz!'))
-            } else msg.channel.send(djBot.emote('fail', 'Você não pode me expulsar!'))
+            try {
+                djBot.updatePresence({}, { clear: true })
+                if (djBot.isAdmin(msg.member) || djBot.leaveCmdFree === true) {
+                    const voiceConnection = client.voiceConnections.find(val => val.channel.guild.id == msg.guild.id);
+                    if (voiceConnection === null)
+                        return msg.channel.send(djBot.emote('fail', 'Não estou em um canal de voz!'))
+                    djBot.destroyQueue(msg.guild.id)
+                    if (djBot.songEmbed) djBot.songEmbed.then((s) => s.delete()), djBot.songEmbed = null
+                    
+                    if (!voiceConnection.player.dispatcher) return
+                    voiceConnection.player.dispatcher.end()
+                    voiceConnection.disconnect()
+                    msg.channel.send(djBot.emote('note', 'Deixou o canal de voz!'))
+                } else msg.channel.send(djBot.emote('fail', 'Você não pode me expulsar!'))
+            } catch (e) {
+                client.logger.error(e)
+            }
         }
 
         djBot.pauseFunction = (msg, suffix, args, cmdRun, flags) => {
@@ -788,10 +816,37 @@ exports.start = (client, options) => {
             if (!djBot.isAdmin(msg.member) && !djBot.clearControll)
                 return msg.channel.send(djBot.emote('fail', 'Você não pode limpar filas.'))
             djBot.destroyQueue(msg.guild.id)
-            if (djBot.songEmbed) djBot.songEmbed.then((s) => s.delete())
+            if (djBot.songEmbed) djBot.songEmbed.then((s) => s.delete()), djBot.songEmbed = null
                 
             if (!voiceConnection.player.dispatcher) return
             voiceConnection.player.dispatcher.end()
+        }
+
+        djBot.loopFunction = (msg, suffix, args, cmdRun, flags) => {
+            const voiceConnection = client.voiceConnections.find(val => val.channel.guild.id == msg.guild.id)
+            if (voiceConnection === null) return msg.channel.send(djBot.emote('fail', 'Nenhuma música tocando.'))
+            const queue = djBot.queue(msg.guild.id)
+            if (queue.loop == 'song') {
+                queue.loop = 'queue'
+                return msg.channel.send(djBot.emote('note', 'Loop na fila ativado!'))
+            } else if (queue.loop == 'queue') {
+                queue.loop = 'disable'
+                return msg.channel.send(djBot.emote('note', 'Loop desativado!'))
+            } else {
+                queue.loop = 'song'
+                return msg.channel.send(djBot.emote('note', 'Loop na música ativado!'))
+            }
+        }
+
+        djBot.volumeFunction = (msg, suffix, args, cmdRun, flags) => {
+            const voiceConnection = client.voiceConnections.find(val => val.channel.guild.id == msg.guild.id)
+            if (voiceConnection === null) return msg.channel.send(djBot.emote('fail', 'Nenhuma música tocando.'))
+            if (args.length == 0) return msg.channel.send(djBot.emote('error', 'Você precisa informar um volume!'))
+            const queue = djBot.queue(msg.guild.id)
+            const volume = parseInt(args[0])
+            if (volume < 0 || volume > 200) return msg.channel.send(djBot.emote('error', 'O volume precisa estar entre 0 e 200!'))
+            queue.volume = volume
+            msg.channel.send(djBot.emote('note', `Volume alterado para ${volume}`))
         }
 
         djBot.adminBotFunction = (msg, suffix, args, cmdRun, flags) => {
@@ -920,7 +975,7 @@ exports.start = (client, options) => {
                     })
                     r.channel.send(`A sua playlist(**${playlist.name}**) está pronta!`)
                 } catch (e) {
-                    console.log(e)
+                    client.logger.error(e)
                 }
             }
 
@@ -993,14 +1048,15 @@ exports.start = (client, options) => {
                 await djBot.addCommand(djBot.createPlaylist)
                 await djBot.addCommand(djBot.myPlaylists)
                 await djBot.addCommand(djBot.deletePlaylist)
+                await djBot.addCommand(djBot.loop)
+                await djBot.addCommand(djBot.volume)
             } catch (e) {
-                throw('Error on load commands')
-                throw(e)
+                client.logger.error(e)
             }
         }
 
         djBot.loadCommands()
     } catch(e) {
-        console.log(e)
+        client.logger.error(e)
     }
 }

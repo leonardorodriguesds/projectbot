@@ -240,9 +240,9 @@ exports.start = (client, options) => {
                             })
                         ).catch(console.log)
                     } else msg.reply(`você já está cadastrado${coreBot.userInfo.enabled? `\nUse ${coreBot.botPrefix}${coreBot.userInfo.name} para ver suas informações` : '.'}`)
-                }).catch(e => console.log(`[${cmdRun}]` + e))
+                }).catch(e => client.logger.error(e))
             } catch(e) {
-                console.log(`[${cmdRun}]` + e)
+                client.logger.error(e)
             }
         }
 
@@ -254,14 +254,14 @@ exports.start = (client, options) => {
                     client.riot.playerInfoFunction(m, data.lolNick)
                     client.code.CodeforcesUserInfoFunction(m, data.codeforcesHandle)
                 })
-            }).catch(e => console.log(`[${cmdRun}]` + e))
+            }).catch(e => client.logger.error(e))
         }
 
         coreBot.userLolFunction = (msg, suffix, args, cmdRun, flags) => {
             coreBot.usersCollection.findOne({ userID: msg.author.id }).then(data => {
                 if (!data) return msg.reply(`você não está cadastrado.`)
                 client.riot.playerInfoFunction(msg, data.lolNick)
-            }).catch(e => console.log(`[${cmdRun}]` + e))
+            }).catch(e => client.logger.error(e))
         }
 
         coreBot.deleteUserFunction = (msg, suffix, args, cmdRun, flags) => {
@@ -269,21 +269,21 @@ exports.start = (client, options) => {
                 if (!data) msg.reply(`você não está cadastrado.`)
                 coreBot.usersCollection.deleteOne({ userID: msg.author.id })
                 .then(() => msg.reply(`seu cadastro foi deletado!`))
-            }).catch(e => console.log(`[${cmdRun}]` + e))
+            }).catch(e => client.logger.error(e))
         }
 
         coreBot.gameUserFunction = (msg, suffix, args, cmdRun, flags) => {
             coreBot.usersCollection.findOne({ userID: msg.author.id }).then(data => {
                 if (!data) msg.reply(`você não está cadastrado.`)
                 client.riot.gameInfoFunction(msg, data.lolNick)
-            }).catch(e => console.log(`[${cmdRun}]` + e))
+            }).catch(e => client.logger.error(e))
         }
 
         coreBot.codeforcesUserInfoFunction = (msg, suffix, args, cmdRun, flags) => {
             coreBot.usersCollection.findOne({ userID: msg.author.id }).then(data => {
                 if (!data) msg.reply(`você não está cadastrado.`)
                 client.code.CodeforcesUserInfoFunction(msg, data.codeforcesHandle)
-            }).catch(e => console.log(`[${cmdRun}]` + e))
+            }).catch(e => client.logger.error(e))
         }
 
         coreBot.clearChatFunction = async (msg, suffix, args, cmdRun, flags) => {
@@ -308,7 +308,7 @@ exports.start = (client, options) => {
                     .then(c => c.setParent(msg.channel.parent))
                     .then(msg.channel.delete())
             } catch(e) {
-                console.log(e)
+                client.logger.error(e)
             }
         }
 
@@ -346,14 +346,12 @@ exports.start = (client, options) => {
                 await coreBot.addCommand(coreBot.clearChat)
                 await coreBot.addCommand(coreBot.codeforcesUserInfo)
             } catch (e) {
-                throw('Error on load commands')
-                throw(e)
+                client.logger.error(e)
             }
         }
 
         coreBot.loadCommands()
     } catch (e) {
-        console.log(e)
-        throw(e)
+        client.logger.error(e)
     }
 }

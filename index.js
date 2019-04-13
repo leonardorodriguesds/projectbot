@@ -1,13 +1,32 @@
 const { Client } = require('discord.js')
 const auth = require('./env/auth.json')
+const winston = require('winston')
+const { combine, timestamp, prettyPrint } = winston.format;
+
+const logger = winston.createLogger({
+    level: 'info',
+    format: winston.format.json(),
+    defaultMeta: { service: 'bot-service' },
+    format: combine(
+        timestamp(),
+        prettyPrint()
+    ),
+    transports: [
+        new winston.transports.File({ filename: 'error.log', level: 'error' }),
+        new winston.transports.File({ filename: 'combined.log' })
+    ]
+})
 
 /**
  * initial
  */
 var client = new Client()
 client.on('ready', function () {
+    const date = new Date()
     console.log('Ready...')
+    logger.info(`Bot started on ${date}`)
 });
+client.logger = logger
 
 /**
  * MongoDB

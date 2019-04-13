@@ -16,10 +16,8 @@ Number.prototype.toTime = function () {
 
 exports.start = (client, options) => {
     try {
-        if (options.apiKey == undefined) {
-            console.log('RiotBOT: Informe sua apiKey')
-            return
-        }
+        if (options.apiKey == undefined)
+            throw ('RiotBOT: Informe sua apiKey')
 
         class Chamption {
             constructor(data) {
@@ -358,7 +356,7 @@ exports.start = (client, options) => {
                     await riotBot.addChamption(key.toLowerCase(), champs.data[key])
                 })
             } catch (e) {
-                console.log(e)
+                return client.logger.error(e)
             }
         }
 
@@ -502,7 +500,7 @@ exports.start = (client, options) => {
                     msg.channel.send(embed)
                 }
             } catch (e) {
-                console.log(e)
+                return client.logger.error(e)
             }
         }
 
@@ -516,8 +514,8 @@ exports.start = (client, options) => {
                 await riotBot.printUser(msg, suffix, args, flags, user, league)
                 tmp.then(m => m.delete())
             } catch(e) {
-                console.log(e)
                 msg.channel.send(riotBot.emote('fail', 'Ocorreu um erro ao buscar esse jogador!'))
+                return client.logger.error(e)
             }
         }
 
@@ -530,8 +528,8 @@ exports.start = (client, options) => {
                 await riotBot.printGame(msg, suffix, args, flags, user, game)
                 tmp.then(m => m.delete())
             } catch (e) {
-                console.log(e)
                 msg.channel.send(riotBot.emote('fail', 'Não foi possível obter informações da partida deste jogador!'))
+                return client.logger.error(e)
             }
         }
 
@@ -593,8 +591,8 @@ exports.start = (client, options) => {
                 await riotBot.printMatches(msg, suffix, args, flags, user)
                 tmp.then(m => m.delete())
             } catch(e) {
-                console.log(e)
                 msg.channel.send(riotBot.emote('fail', 'Ocorreu um erro ao buscar esse jogador!'))
+                return client.logger.error(e)
             }
         }
 
@@ -629,13 +627,12 @@ exports.start = (client, options) => {
                 await riotBot.addCommand(riotBot.champtionInfo)
                 await riotBot.addCommand(riotBot.matchesInfo)
             } catch (e) {
-                throw('Error on load commands')
-                throw(e)
+                return client.logger.error(e)
             }
         }
         
         riotBot.loadCommands();
     } catch(e) {
-        console.log(e)
+        return client.logger.error(e)
     }
 }

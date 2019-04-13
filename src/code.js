@@ -15,14 +15,10 @@ Number.prototype.toTime = function () {
 
 exports.start = (client, options) => {
     try {
-        if (options.contestChannelID == undefined) {
-            console.log('codeBot: É preciso eleger um canal de texto para exibir informações dos contests')
-            return
-        }
-        if (options.codeforcesKEY == undefined) {
-            console.log('codeBot: Informe sua key da api do codeforces')
-            return
-        }
+        if (options.contestChannelID == undefined)
+            throw ('codeBot: É preciso eleger um canal de texto para exibir informações dos contests')
+        if (options.codeforcesKEY == undefined)
+            throw ('codeBot: Informe sua key da api do codeforces')
 
         if (!client.mongo || !client.db) throw('[CORE] Não foi possível encontrar o link com o mongoDB.')
 
@@ -208,8 +204,7 @@ exports.start = (client, options) => {
                     })
                 })
             } catch (e) {
-                console.log('[LoadContest]:')
-                console.log(e)
+                client.logger.error(e)
             }
         }
 
@@ -254,8 +249,7 @@ exports.start = (client, options) => {
                 msg.channel.send(embed).then(tmp.then(e => e.delete()))
             } catch(e) {
                 msg.channel.send(codeBot.emote('fail', 'Não foi possível obter a lista de contests.'))
-                console.log(`${cmdRun}:`)
-                console.log(e)
+                return client.logger.error(e)
             }
         }
 
@@ -283,8 +277,7 @@ exports.start = (client, options) => {
                 msg.channel.send(embed).then(tmp.then(e => e.delete()))
             } catch(e) {
                 msg.channel.send(codeBot.emote('fail', 'Não foi possível obter informações deste usuário.'))
-                console.log(`${cmdRun}:`)
-                console.log(e)
+                return client.logger.error(e)
             }
         }
 
@@ -324,14 +317,12 @@ exports.start = (client, options) => {
                 await codeBot.addCommand(codeBot.CodeforcesUserInfo)
                 await codeBot.addCommand(codeBot.addChannelContestInfo)
             } catch (e) {
-                throw('Error on load commands')
-                throw(e)
+                return client.logger.error(e)
             }
         }
 
         codeBot.loadCommands()
     } catch (e) {
-        console.log(e)
-        throw(e)
+        return client.logger.error(e)
     }
 }

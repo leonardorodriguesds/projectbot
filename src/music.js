@@ -522,11 +522,10 @@ exports.start = (client, options) => {
                     throw(err)
                 })
                 const music = queue.songs[queue.order[queue.index++]]
-                const player = djBot.broadcast.playStream(ytdl(music.link, { filter : 'audioonly' }), {
+                const player = connection.playStream(ytdl(music.link, { filter : 'audioonly' }), {
                     bitrate: djBot.bitRate,
                     volume: (queue.volume / 100)
                 })
-                connection.playBroadcast(player)
                 player.on('error', (err) => {
                     throw(err)
                 }).on('start', () => {
